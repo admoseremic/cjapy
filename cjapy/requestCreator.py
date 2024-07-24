@@ -103,6 +103,7 @@ class RequestCreator:
     def addMetric(
         self,
         metricId: str = None,
+        metricDefinition: dict = None,
         attributionModel: str = None,
         lookbackWindow: Union[int, str] = 30,
         lookbackGranularity: str = "day",
@@ -111,14 +112,43 @@ class RequestCreator:
         """
         Add a metric to the template.
         Arguments:
-            metricId : REQUIRED : The metric to add
+            metricId : OPTIONAL : The metric or calculated metric to add, if no metricId is supplied, a metricDefinition must be supplied.
+            metricDefinition : OPTIONAL : The definition of an ad hoc calculated metric.
             attributionModel : OPTIONAL : The attribution model to use (e.g., "lastTouch", "firstTouch", "linear", "participation", "sameTouch", "uShaped", "jShaped", "reverseJShaped", "timeDecay", "positionBased", "algorithmic")
             lookbackWindow : OPTIONAL : The lookback window (number of minutes, hours, days, weeks, months, quarters, "session", or "person"). Assumes 30 if not specified.
             lookbackGranularity : OPTIONAL : The granularity of the lookback window (minute, hour, day, week, month, quarter). Defaults to "day".
             **kwargs : Additional model-specific parameters. For "timeDecay" (assumes 1 week): halfLifeNumPeriods, halfLifeGranularity, for "positionBased": firstWeight, middleWeight, lastWeight.
         """
-        if metricId is None:
-            raise ValueError("Require a metric ID")
+        if metricId is None and metricDefinition is None:
+            raise ValueError("Require a metric ID or metric definition")
+        
+        columnId = self.__metricCount
+
+        # Check if the metricId is a calculated metric
+        if metricId and metricId.startswith("cm") and "@AdobeOrg" in metricId:
+            calcMetric = {
+                "id": metricId,
+                "columnId": str(columnId)
+            }
+            # Only add sorting to the first metric if no dimension sort is specified
+            if columnId == 0 and "dimensionSort" not in self.__request["settings"]:
+                calcMetric["sort"] = "desc"
+            self.__request["metricContainer"]["metrics"].append(calcMetric)
+            self.__metricCount += 1
+            return
+        
+        # If a metricDefinition is provided, treat it as a calculated metric
+        if metricDefinition:
+            calcMetric = {
+                "id": f"ad_hoc_cm_{str(columnId)}",
+                "metricDefinition": metricDefinition,
+                "columnId": str(columnId)
+            }
+            if columnId == 0 and "dimensionSort" not in self.__request["settings"]:
+                calcMetric["sort"] = "desc"
+            self.__request["metricContainer"]["metrics"].append(calcMetric)
+            self.__metricCount += 1
+            return
         
         if attributionModel and attributionModel not in ["lastTouch", "firstTouch", "linear", "participation", "sameTouch", "uShaped", "jShaped", "reverseJShaped", "timeDecay", "positionBased", "algorithmic"]:
             raise ValueError("Invalid attribution model")
@@ -126,9 +156,10 @@ class RequestCreator:
         if attributionModel and lookbackGranularity not in ["minute", "hour", "day", "week", "month", "quarter"]:
             raise ValueError("Invalid lookbackGranularity. Valid values are: 'minute', 'hour', 'day', 'week', 'month', 'quarter'")
         
-        columnId = self.__metricCount
         addMetric = {"columnId": str(columnId), "id": metricId}
-        if columnId == 0:
+        
+        # Only add sorting to the first metric if no dimension sort is specified
+        if columnId == 0 and "dimensionSort" not in self.__request["settings"]:
             addMetric["sort"] = "desc"
 
         if attributionModel:
